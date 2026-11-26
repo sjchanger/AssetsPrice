@@ -1,0 +1,23 @@
+# Telegram Serverless has no built-in timers, so this workflow is the 30-minute trigger.
+# It runs the official CLI in CI; the posting logic itself runs on Telegram's platform.
+name: publish-prices
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'   # GitHub may delay scheduled runs by a few minutes
+  workflow_dispatch:          # manual "Run workflow" button
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+      - name: Post prices to channel
+        env:
+          TGCLOUD_TOKEN: ${{ secrets.TGCLOUD_TOKEN }}
+          ADMIN_ID: ${{ vars.ADMIN_ID }}
+        run: npx tgcloud run endpoints/publishPrices '{}' --ctx "{\"initData\":{\"user\":{\"id\":$ADMIN_ID}}}"
