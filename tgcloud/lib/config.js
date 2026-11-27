@@ -17,6 +17,6 @@ export const ITEMS = [
   { id: 'copper', label: '🟤 مس',          symbol: 'basemetal-london-copper', unit: 'usd_ton', per: 'گرم' },
 ];
 
-export const COOLDOWN_MS = 10_000;     // هر کاربر: ۱۰ ثانیه بین دو درخواست
+export const COOLDOWN_MS = 60_000;     // هر کاربر: ۱۰ ثانیه بین دو درخواست
 export const TGJU_CACHE_MS = 60_000;   // کش مشترک قیمت‌های TGJU
 export const CMC_CACHE_MS = 120_000;   // کش مشترک کوین‌ها
