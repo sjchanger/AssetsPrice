@@ -1,10 +1,6 @@
-// handlers/callback_query.js — runs when a user taps an inline button. Payload is the CallbackQuery.
+// handlers/callback_query.js — در این نسخه دکمه‌ای وجود ندارد؛ فقط جواب خالی می‌دهیم.
 import { api } from 'sdk';
-import { handleBoardCallback } from '../lib/bot.js';
 
 export default async function (cq) {
-  if (cq.data === 'prices' || cq.data === 'refresh') {
-    return handleBoardCallback(cq);
-  }
   return api.answerCallbackQuery({ callback_query_id: cq.id });
 }
