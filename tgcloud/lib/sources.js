@@ -38,6 +38,7 @@ export async function getTopCoins() {
 
   const coins = (body.data ?? []).map((c) => ({
     symbol: c.symbol,
+    name: c.name,
     usd: c.quote.USD.price,
     change24h: c.quote.USD.percent_change_24h,
   }));
