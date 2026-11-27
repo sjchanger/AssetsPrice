@@ -35,15 +35,19 @@ export function tehranHHMM(nowMs = Date.now()) {
   return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
 }
 
+export function escapeHtml(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 // Converts one raw value to toman. Metals end up per gram.
 function toToman(item, raw, dollarToman) {
   if (raw == null) return null;
   switch (item.unit) {
-    case 'rial':    return raw / 10;                                          // ریال → تومان
-    case 'usd':     return dollarToman == null ? null : raw * dollarToman;     // دلار → تومان
-    case 'usd_oz':  return dollarToman == null ? null : (raw / 31.1035) * dollarToman;  // دلار بر اونس → تومان بر گرم
-    case 'usd_lb':  return dollarToman == null ? null : (raw / 453.592) * dollarToman;  // دلار بر پوند → تومان بر گرم
-    case 'usd_ton': return dollarToman == null ? null : (raw / 1000000) * dollarToman;  // دلار بر تن → تومان بر گرم
+    case 'rial':    return raw / 10;
+    case 'usd':     return dollarToman == null ? null : raw * dollarToman;
+    case 'usd_oz':  return dollarToman == null ? null : (raw / 31.1035) * dollarToman;
+    case 'usd_lb':  return dollarToman == null ? null : (raw / 453.592) * dollarToman;
+    case 'usd_ton': return dollarToman == null ? null : (raw / 1000000) * dollarToman;
     default:        return null;
   }
 }
@@ -76,59 +80,85 @@ export function priceItems(items, current) {
   return { items: out, dollarToman };
 }
 
-// ----- پست کانال: فقط ۴ آیتم، با فرمت ثابت -----
-const CHANNEL_LINES = [
-  { id: 'dollar', icon: '🟢', name: 'دلار', note: '' },
-  { id: 'silver', icon: '⚪️', name: 'نقره', note: ' (گرم)' },
-  { id: 'gold',   icon: '🟡', name: 'طلا',  note: ' (گرم)' },
-  { id: 'copper', icon: '🟤', name: 'مس',   note: ' (گرم)' },
-];
+// ----- فرمت ثابت دارایی‌های TGJU (هم کانال و هم جستجوی ربات) -----
+export const ASSET_LINES = {
+  dollar: { icon: '🟢', name: 'دلار', note: '' },
+  silver: { icon: '⚪️', name: 'نقره', note: ' (گرم)' },
+  gold:   { icon: '🟡', name: 'طلا',  note: ' (گرم)' },
+  copper: { icon: '🟤', name: 'مس',   note: ' (گرم)' },
+};
 
+const CHANNEL_ORDER = ['dollar', 'silver', 'gold', 'copper'];
+
+export function formatItemLine(item) {
+  const line = ASSET_LINES[item.id];
+  return `${line.icon} قیمت لحظه ای <b>«${line.name}»</b>${line.note} : ${fmtToman(item.toman)} تومان`;
+}
+
+// پست کانال: فقط دلار، نقره، طلا و مس
 export function formatChannelPost(items) {
   const byId = new Map(items.map((i) => [i.id, i]));
-  return CHANNEL_LINES
-    .filter((l) => byId.get(l.id)?.ok)
-    .map((l) => {
-      const price = fmtToman(byId.get(l.id).toman);
-      return `${l.icon} قیمت لحظه ای <b>«${l.name}»</b>${l.note} : ${price} تومان`;
-    })
+  return CHANNEL_ORDER
+    .map((id) => byId.get(id))
+    .filter((i) => i && i.ok)
+    .map(formatItemLine)
     .join('\n');
 }
 
-// ----- پنل داخل ربات: همه‌ی آیتم‌ها + کوین‌ها -----
-const BOARD_LIMIT = 3900; // سقف امن پیام تلگرام (۴۰۹۶)
+// ----- فرمت کوین‌ها در جستجو -----
+export function formatCoinLine(coin) {
+  return `🔸 قیمت لحظه ای <b>«${escapeHtml(coin.name)}»</b> (${escapeHtml(coin.symbol)}) : ${fmtToman(coin.toman)} تومان`;
+}
 
-export function formatBoard(priced, coins, time) {
-  const head = [
-    `💎 <b>پنل قیمت‌ها</b>  ·  ساعت ${time} (تهران)`,
-    '',
-    '<b>فلزات و ارز</b>',
-  ];
+// ----- جستجو: نام یا نماد، بدون حساسیت به بزرگی حروف -----
+const PERSIAN_DIGITS = '۰۱۲۳۴۵۶۷۸۹';
+const ARABIC_DIGITS = '٠١٢٣٤٥٦٧٨٩';
 
-  const main = priced.items.map((i) => {
-    if (!i.ok) return `${i.label}  ⚠️ نامشخص`;
-    const change = i.changePct != null ? `  ${trendIcon(i.changePct)} ${fmtPct(i.changePct)}` : '';
-    const per = i.per ? ` / ${i.per}` : '';
-    return `${i.label}\n    <b>${fmtToman(i.toman)}</b> تومان${per}${change}`;
-  });
-
-  const coinHead = ['', `<b>کوین‌ها (${coins ? coins.length : 0})</b>`];
-  let coinLines = coins
-    ? coins.map((c, idx) => {
-        const toman = c.toman != null ? `  ≈ ${fmtToman(c.toman)} تومان` : '';
-        return `${idx + 1}. <b>${c.symbol}</b>  ${fmtUsd(c.usd)}$  ${trendIcon(c.change24h)} ${fmtPct(c.change24h)}${toman}`;
-      })
-    : ['⚠️ در این لحظه در دسترس نیست'];
-
-  const footer = ['', 'منابع: TGJU · CoinMarketCap'];
-  const build = (lines) => [...head, ...main, ...coinHead, ...lines, ...footer].join('\n');
-
-  let text = build(coinLines);
-  while (text.length > BOARD_LIMIT && coinLines.length > 0) {
-    coinLines = coinLines.slice(0, -1);
-    text = build(coinLines);
+export function normalizeQuery(s) {
+  let out = String(s).normalize('NFKC');
+  for (let d = 0; d < 10; d++) {
+    out = out.split(PERSIAN_DIGITS[d]).join(String(d)).split(ARABIC_DIGITS[d]).join(String(d));
   }
-  return text;
+  return out
+    .replace(/[يى]/g, 'ی')
+    .replace(/ك/g, 'ک')
+    .replace(/[\u200c\u200e\u200f]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+const ITEM_ALIASES = {
+  dollar: ['دلار', 'دلار آزاد', 'dollar', 'usd', '$'],
+  gold:   ['طلا', 'طلای', 'طلای ۱۸ عیار', 'gold', 'xau'],
+  silver: ['نقره', 'silver', 'xag'],
+  copper: ['مس', 'copper', 'cu'],
+};
+
+// اول کل متن، بعد هر کلمه‌ی آن. مثلاً «قیمت دلار» هم پیدا می‌شود.
+export function queryCandidates(raw) {
+  const full = normalizeQuery(raw);
+  if (!full) return [];
+  const tokens = full.split(' ').filter(Boolean);
+  return [full, ...tokens.filter((t) => t !== full)];
+}
+
+export function matchItem(candidates, items) {
+  for (const c of candidates) {
+    for (const item of items) {
+      const aliases = (ITEM_ALIASES[item.id] || []).map(normalizeQuery);
+      if (aliases.includes(c)) return item;
+    }
+  }
+  return null;
+}
+
+export function matchCoin(candidates, coins) {
+  for (const c of candidates) {
+    const hit = coins.find((k) => normalizeQuery(k.symbol) === c || normalizeQuery(k.name) === c);
+    if (hit) return hit;
+  }
+  return null;
 }
 
 export function cooldownText(waitSec) {
