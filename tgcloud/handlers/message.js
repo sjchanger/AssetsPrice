@@ -5,7 +5,8 @@ import { searchAsset } from '../lib/bot.js';
 const WELCOME =
   '👋 سلام!\n' +
   'نام یا نماد هر دارایی را بفرستید تا قیمتش را ببینید.\n' +
-  'مثال: ETH، طلا، نقره، مس، BTC\n\n';
+  'مثال: دلار، طلا، نقره، مس، BTC\n\n' +
+  '⏳ هر جستجو یک دقیقه فاصله لازم دارد.';
 
 export default async function (message) {
   const chatId = message.chat.id;
