@@ -1,7 +1,7 @@
 import { api } from 'sdk';
 import { CHANNEL_ID, BOT_USERNAME } from './config.js';
 import { getPricedItems } from './sources.js';
-import { formatChannelPost, tehranHHMM } from './pure.js';
+import { formatChannelPost } from './pure.js';
 
 export async function publishChannelPrices() {
   if (CHANNEL_ID.startsWith('@PUT_') || BOT_USERNAME.startsWith('PUT_')) {
@@ -9,12 +9,12 @@ export async function publishChannelPrices() {
   }
 
   const priced = await getPricedItems();
-  const ready = priced.items.filter((i) => i.ok);
-  if (ready.length === 0) throw new Error('no prices available from TGJU');
+  const text = formatChannelPost(priced.items);
+  if (!text) throw new Error('no prices available from TGJU');
 
   const msg = await api.sendMessage({
     chat_id: CHANNEL_ID,
-    text: formatChannelPost(ready, tehranHHMM()),
+    text,
     parse_mode: 'HTML',
     link_preview_options: { is_disabled: true },
     reply_markup: {
@@ -24,5 +24,5 @@ export async function publishChannelPrices() {
     },
   });
 
-  return { ok: true, message_id: msg.message_id, posted: ready.map((i) => i.id) };
-}
+  return { ok: true, message_id: msg.message_id };
+         }
