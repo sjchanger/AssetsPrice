@@ -1,14 +1,19 @@
 import { api, BotApiError } from 'sdk';
-import { COOLDOWN_MS } from './config.js';
+import { COOLDOWN_MS, CHANNEL_ID } from './config.js';
 import { claimCooldown } from './kv.js';
 import { getPricedItems, getTopCoins } from './sources.js';
 import { formatBoard, tehranHHMM, cooldownText } from './pure.js';
 
-export const BOARD_KEYBOARD = {
-  inline_keyboard: [[{ text: '🔄 بروزرسانی', callback_data: 'refresh' }]],
-};
-
 const NO_PREVIEW = { is_disabled: true };
+
+// دکمه‌های شیشه‌ای زیر پنل: بروزرسانی + لینک کانال (اگر کانال عمومی باشد)
+function boardKeyboard() {
+  const row = [{ text: '🔄 بروزرسانی', callback_data: 'refresh' }];
+  if (CHANNEL_ID.startsWith('@') && !CHANNEL_ID.startsWith('@PUT_')) {
+    row.push({ text: '📢 کانال قیمت‌ها', url: `https://t.me/${CHANNEL_ID.slice(1)}` });
+  }
+  return { inline_keyboard: [row] };
+}
 
 async function buildBoardText() {
   const priced = await getPricedItems();
@@ -19,17 +24,17 @@ async function buildBoardText() {
   } catch (e) {
     console.error('CMC unavailable', e);
   }
-  if (coins && priced.dollarToman != null) {
-    coins = coins.map((c) => ({ ...c, toman: c.usd * priced.dollarToman }));
-  } else if (coins) {
-    coins = coins.map((c) => ({ ...c, toman: null }));
+  if (coins) {
+    coins = coins.map((c) => ({
+      ...c,
+      toman: priced.dollarToman != null ? c.usd * priced.dollarToman : null,
+    }));
   }
 
   return formatBoard(priced, coins, tehranHHMM());
 }
 
-// Shared by /start prices, /prices, the text "قیمت", and the inline buttons.
-// Every request counts against the user's cooldown, so repeated taps cannot spam TGJU or CoinMarketCap.
+// /start prices, /prices, متن «قیمت» و دکمه‌ها. هر درخواست کول‌داون یک‌دقیقه‌ای دارد.
 export async function sendBoard(chatId, userId) {
   try {
     const cd = await claimCooldown(userId, COOLDOWN_MS);
@@ -41,7 +46,7 @@ export async function sendBoard(chatId, userId) {
       chat_id: chatId,
       text,
       parse_mode: 'HTML',
-      reply_markup: BOARD_KEYBOARD,
+      reply_markup: boardKeyboard(),
       link_preview_options: NO_PREVIEW,
     });
   } catch (e) {
@@ -61,7 +66,7 @@ export async function handleBoardCallback(cq) {
   try {
     const cd = await claimCooldown(userId, COOLDOWN_MS);
     if (!cd.ok) {
-      // Telegram cannot grey out a button, so the press is answered with the remaining wait instead.
+      // تلگرام نمی‌تواند دکمه را خاکستری کند، پس زمان باقی‌مانده را به‌صورت پاپ‌آپ نشان می‌دهیم.
       return api.answerCallbackQuery({
         callback_query_id: cq.id,
         text: cooldownText(cd.waitSec),
@@ -69,7 +74,6 @@ export async function handleBoardCallback(cq) {
       });
     }
 
-    // Acknowledge first so Telegram's spinner stops, then do the slower fetch.
     await api.answerCallbackQuery({ callback_query_id: cq.id });
     const text = await buildBoardText();
 
@@ -80,11 +84,11 @@ export async function handleBoardCallback(cq) {
           message_id: messageId,
           text,
           parse_mode: 'HTML',
-          reply_markup: BOARD_KEYBOARD,
+          reply_markup: boardKeyboard(),
           link_preview_options: NO_PREVIEW,
         });
       } catch (e) {
-        // "message is not modified" when the content is unchanged; nothing to do.
+        // "message is not modified": محتوا تغییری نکرده، کاری لازم نیست.
         if (e instanceof BotApiError && e.code === 400) return;
         throw e;
       }
@@ -94,7 +98,7 @@ export async function handleBoardCallback(cq) {
       chat_id: chatId,
       text,
       parse_mode: 'HTML',
-      reply_markup: BOARD_KEYBOARD,
+      reply_markup: boardKeyboard(),
       link_preview_options: NO_PREVIEW,
     });
   } catch (e) {
@@ -107,4 +111,4 @@ export async function handleBoardCallback(cq) {
       })
       .catch(() => {});
   }
-}
+      }
