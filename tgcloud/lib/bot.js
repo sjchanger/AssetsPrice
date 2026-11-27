@@ -1,114 +1,50 @@
-import { api, BotApiError } from 'sdk';
-import { COOLDOWN_MS, CHANNEL_ID } from './config.js';
+import { api } from 'sdk';
+import { COOLDOWN_MS } from './config.js';
 import { claimCooldown } from './kv.js';
 import { getPricedItems, getTopCoins } from './sources.js';
-import { formatBoard, tehranHHMM, cooldownText } from './pure.js';
+import {
+  queryCandidates, matchItem, matchCoin, formatItemLine, formatCoinLine,
+  cooldownText, ASSET_LINES,
+} from './pure.js';
 
+const NOT_FOUND = '❌ دارایی‌ای با این نام یا نماد پیدا نشد.\nمثال: دلار، طلا، نقره، مس، BTC';
 const NO_PREVIEW = { is_disabled: true };
 
-// دکمه‌های شیشه‌ای زیر پنل: بروزرسانی + لینک کانال (اگر کانال عمومی باشد)
-function boardKeyboard() {
-  const row = [{ text: '🔄 بروزرسانی', callback_data: 'refresh' }];
-  if (CHANNEL_ID.startsWith('@') && !CHANNEL_ID.startsWith('@PUT_')) {
-    row.push({ text: '📢 کانال قیمت‌ها', url: `https://t.me/${CHANNEL_ID.slice(1)}` });
-  }
-  return { inline_keyboard: [row] };
-}
-
-async function buildBoardText() {
-  const priced = await getPricedItems();
-
-  let coins = null;
-  try {
-    coins = await getTopCoins();
-  } catch (e) {
-    console.error('CMC unavailable', e);
-  }
-  if (coins) {
-    coins = coins.map((c) => ({
-      ...c,
-      toman: priced.dollarToman != null ? c.usd * priced.dollarToman : null,
-    }));
-  }
-
-  return formatBoard(priced, coins, tehranHHMM());
-}
-
-// /start prices, /prices, متن «قیمت» و دکمه‌ها. هر درخواست کول‌داون یک‌دقیقه‌ای دارد.
-export async function sendBoard(chatId, userId) {
-  try {
-    const cd = await claimCooldown(userId, COOLDOWN_MS);
-    if (!cd.ok) {
-      return api.sendMessage({ chat_id: chatId, text: cooldownText(cd.waitSec) });
-    }
-    const text = await buildBoardText();
-    return api.sendMessage({
-      chat_id: chatId,
-      text,
-      parse_mode: 'HTML',
-      reply_markup: boardKeyboard(),
-      link_preview_options: NO_PREVIEW,
-    });
-  } catch (e) {
-    console.error(e);
-    return api.sendMessage({
-      chat_id: chatId,
-      text: '❌ دریافت قیمت‌ها موقتاً انجام نشد. کمی بعد دوباره امتحان کنید.',
-    });
-  }
-}
-
-export async function handleBoardCallback(cq) {
-  const userId = cq.from.id;
-  const chatId = cq.message?.chat?.id ?? userId;
-  const messageId = cq.message?.message_id;
+// هر جستجو یک‌دقیقه فاصله می‌خواهد. در این مدت هیچ جستجوی دیگری پذیرفته نمی‌شود.
+export async function searchAsset(chatId, userId, rawQuery) {
+  const send = (text) =>
+    api.sendMessage({ chat_id: chatId, text, parse_mode: 'HTML', link_preview_options: NO_PREVIEW });
 
   try {
     const cd = await claimCooldown(userId, COOLDOWN_MS);
-    if (!cd.ok) {
-      // تلگرام نمی‌تواند دکمه را خاکستری کند، پس زمان باقی‌مانده را به‌صورت پاپ‌آپ نشان می‌دهیم.
-      return api.answerCallbackQuery({
-        callback_query_id: cq.id,
-        text: cooldownText(cd.waitSec),
-        show_alert: true,
-      });
+    if (!cd.ok) return send(cooldownText(cd.waitSec));
+
+    const candidates = queryCandidates(rawQuery);
+    const priced = await getPricedItems();
+
+    const item = matchItem(candidates, priced.items);
+    if (item) {
+      if (!item.ok) return send(`⚠️ قیمت «${ASSET_LINES[item.id].name}» در این لحظه دریافت نشد.`);
+      return send(formatItemLine(item));
     }
 
-    await api.answerCallbackQuery({ callback_query_id: cq.id });
-    const text = await buildBoardText();
-
-    if (cq.data === 'refresh' && messageId) {
-      try {
-        return await api.editMessageText({
-          chat_id: chatId,
-          message_id: messageId,
-          text,
-          parse_mode: 'HTML',
-          reply_markup: boardKeyboard(),
-          link_preview_options: NO_PREVIEW,
-        });
-      } catch (e) {
-        // "message is not modified": محتوا تغییری نکرده، کاری لازم نیست.
-        if (e instanceof BotApiError && e.code === 400) return;
-        throw e;
-      }
+    // کوین‌ها فقط وقتی گرفته می‌شوند که دارایی TGJU پیدا نشده باشد.
+    let coins = null;
+    try {
+      coins = await getTopCoins();
+    } catch (e) {
+      console.error('CMC unavailable', e);
     }
+    if (!coins) return send('⚠️ قیمت کوین‌ها در این لحظه در دسترس نیست. کمی بعد دوباره امتحان کنید.');
 
-    return api.sendMessage({
-      chat_id: chatId,
-      text,
-      parse_mode: 'HTML',
-      reply_markup: boardKeyboard(),
-      link_preview_options: NO_PREVIEW,
-    });
+    const coin = matchCoin(candidates, coins);
+    if (!coin) return send(NOT_FOUND);
+
+    const toman = priced.dollarToman != null ? coin.usd * priced.dollarToman : null;
+    if (toman == null) return send('⚠️ نرخ دلار در این لحظه دریافت نشد.');
+    return send(formatCoinLine({ ...coin, toman }));
   } catch (e) {
     console.error(e);
-    await api
-      .answerCallbackQuery({
-        callback_query_id: cq.id,
-        text: '❌ خطا در دریافت قیمت‌ها',
-        show_alert: true,
-      })
-      .catch(() => {});
+    return send('❌ دریافت قیمت موقتاً انجام نشد. کمی بعد دوباره امتحان کنید.');
   }
-      }
+}
