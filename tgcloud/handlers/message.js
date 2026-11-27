@@ -1,25 +1,24 @@
-// handlers/message.js — runs on each incoming message. The payload is the Message object.
+// handlers/message.js — هر پیام کاربر. /start راهنماست، بقیه‌ی متن‌ها جستجوی دارایی هستند.
 import { api } from 'sdk';
-import { sendBoard } from '../lib/bot.js';
+import { searchAsset } from '../lib/bot.js';
 
-const WELCOME = '👋 سلام! برای دیدن قیمت دلار، طلا، نقره، مس و کوین‌ها، دکمه‌ی زیر را بزنید.';
-const START_KEYBOARD = {
-  inline_keyboard: [[{ text: '📊 مشاهده قیمت‌ها', callback_data: 'prices' }]],
-};
+const WELCOME =
+  '👋 سلام!\n' +
+  'نام یا نماد هر دارایی را بفرستید تا قیمتش را ببینید.\n' +
+  'مثال: دلار، طلا، نقره، مس، BTC\n\n' +
+  '⏳ هر جستجو یک دقیقه فاصله لازم دارد.';
 
 export default async function (message) {
   const chatId = message.chat.id;
   const userId = message.from?.id ?? chatId;
   const text = (message.text ?? '').trim();
+  if (!text) return;
 
-  const [rawCmd, arg] = text.split(/\s+/);
-  const cmd = (rawCmd ?? '').split('@')[0]; // handles /start@YourBot
-
-  if (cmd === '/prices' || text === 'قیمت' || (cmd === '/start' && arg === 'prices')) {
-    return sendBoard(chatId, userId);
-  }
-
+  const cmd = text.split(/\s+/)[0].split('@')[0];
   if (cmd === '/start') {
-    return api.sendMessage({ chat_id: chatId, text: WELCOME, reply_markup: START_KEYBOARD });
+    return api.sendMessage({ chat_id: chatId, text: WELCOME });
   }
+  if (cmd.startsWith('/')) return; // سایر دستورها نادیده گرفته می‌شوند
+
+  return searchAsset(chatId, userId, text);
 }
